@@ -83,11 +83,16 @@ class ImageLoader:
                     raise ValueError("Empty response content from image URL")
 
                 image_data = BytesIO(response.content)
-            elif parsed_url.scheme == "" or parsed_url.scheme == "file":
+            elif parsed_url.scheme in ("", "file"):
                 # Local file path (plain path or file:// URI)
                 path = image_url if parsed_url.scheme == "" else parsed_url.path
-                image = await asyncio.to_thread(Image.open, path)
-                return image.convert("RGB")
+
+                def _read_local_file(p: str) -> bytes:
+                    with open(p, "rb") as f:
+                        return f.read()
+
+                image_bytes = await asyncio.to_thread(_read_local_file, path)
+                image_data = BytesIO(image_bytes)
             else:
                 raise ValueError(f"Invalid image source scheme: {parsed_url.scheme}")
 
