@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import asyncio
 import logging
 import time
 from io import BytesIO
@@ -23,7 +22,6 @@ from urllib.parse import urlparse
 from urllib.request import urlopen
 
 import torch
-from tensorrt_llm.inputs import default_multimodal_input_loader
 from tensorrt_llm.llmapi.tokenizer import tokenizer_factory
 
 from dynamo.common.multimodal.image_loader import ImageLoader
@@ -190,10 +188,6 @@ class MultimodalRequestProcessor:
             "prompt_token_ids": List[int]
         }
 
-        -----------------------------------------------------------------------------
-        TODO: Revert default_multimodal_input_loader calls having fixed TRT-LLM's
-        token IDs & MM data path in generate_async() for the embeddings case.
-        -----------------------------------------------------------------------------
         """
         self.previous_decoded_text = ""
 
@@ -221,50 +215,34 @@ class MultimodalRequestProcessor:
         # mm_processor_kwargs must be a dict (not None) for TRT-LLM's processor
         processed_inputs = {"prompt_token_ids": token_ids, "mm_processor_kwargs": {}}
 
-        # The aforementioned fallback to default_multimodal_input_loader:
         messages = request.get("extra_args", {}).get(
             "messages", request.get("messages", [])
         )
-        text_prompt, _, embedding_paths = self.extract_prompt_and_media(messages)
-        loader_kwargs = {}
+        _, _, embedding_paths = self.extract_prompt_and_media(messages)
 
-        # Two cases, both for the default_multimodal_input_loader fallback:
-        # 1) EPD Flow Case 2: Embeddings received via NIXL from encode worker
-        #   The encode worker computed vision embeddings and transferred them via RDMA/NIXL
-        #   We need to pass these embeddings directly to TRT-LLM's generate_async
-        # 2) PD flow with no NIXL and no encoder
-        if embeddings is not None or embedding_paths:
-            if embeddings is not None:
-                logging.info(
-                    f"Using NIXL embeddings from encoder: shape={embeddings.shape if hasattr(embeddings, 'shape') else 'N/A'}"
-                )
-                loader_kwargs["mm_embeddings"] = [embeddings]
-            elif embedding_paths:
-                # PD flow with no NIXL and no encoder
-                loader_kwargs["mm_embeddings"] = [
-                    self.load_tensor_from_path_or_url(path) for path in embedding_paths
-                ]
-                logging.info(f"Using embedding paths: {embedding_paths}")
-
-            # NOTE: default_multimodal_input_loader downloads images and preprocesses them
-            # synchronously. Wrap in asyncio.to_thread to allow concurrent image loading
-            # across multiple requests, improving throughput at high concurrency.
-            fallback_processed_inputs = await asyncio.to_thread(
-                lambda: default_multimodal_input_loader(
-                    tokenizer=self.tokenizer,
-                    model_dir=self.model_dir,
-                    model_type=self.model_type,
-                    modality=self.modality,
-                    prompts=[text_prompt],
-                    image_data_format="pt",
-                    device="cuda",
-                    **loader_kwargs,
-                )
+        # EPD Flow Case 2: Pre-computed embeddings (from NIXL encoder or file paths).
+        # Pass embeddings directly via multi_modal_embeddings, bypassing TRT-LLM's
+        # input_processor_with_hash. The input processor re-processes images and
+        # caches results by content hash; on a second identical request the cached
+        # processed token_ids have 0 image placeholders left, but embeddings are
+        # still attached, causing a token-count mismatch.
+        if embeddings is not None:
+            logging.info(
+                f"Using NIXL embeddings from encoder: "
+                f"shape={embeddings.shape if hasattr(embeddings, 'shape') else 'N/A'}"
             )
-            # Return the first processed input if available
-            if fallback_processed_inputs:
-                return fallback_processed_inputs[0]
-            return None
+            processed_inputs["multi_modal_data"] = {}
+            processed_inputs["multi_modal_embeddings"] = embeddings
+            return processed_inputs
+
+        if embedding_paths:
+            loaded = [
+                self.load_tensor_from_path_or_url(path) for path in embedding_paths
+            ]
+            logging.info(f"Loaded {len(loaded)} embedding file(s) from paths")
+            processed_inputs["multi_modal_data"] = {}
+            processed_inputs["multi_modal_embeddings"] = loaded
+            return processed_inputs
 
         # PD Flow: Pre-tokenized by Rust frontend with direct media loading
         # TODO: Add frontend decoding support
