@@ -236,7 +236,7 @@ class MultimodalRequestProcessor:
         if embeddings is not None or embedding_paths:
             if embeddings is not None:
                 logging.info(
-                    f"Using NIXL embeddings from encoder: shape={embeddings.shape if hasattr(embeddings, 'shape') else 'N/A'}"
+                    f"Using pre-computed embeddings (encoder or cache): shape={embeddings.shape if hasattr(embeddings, 'shape') else 'N/A'}"
                 )
                 loader_kwargs["mm_embeddings"] = [embeddings]
             elif embedding_paths:
