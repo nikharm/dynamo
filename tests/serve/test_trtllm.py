@@ -263,6 +263,33 @@ trtllm_configs = {
             "ENCODE_CUDA_VISIBLE_DEVICES": "0",
         },
     ),
+    # E+PD with embedding cache enabled, 2 GPUs.
+    # Sends the same multimodal request twice to confirm the cached-embedding
+    # path does not crash on the second identical request.
+    "e_pd_embedding_cache": TRTLLMConfig(
+        name="e_pd_embedding_cache",
+        directory=trtllm_dir,
+        script_name="disagg_e_pd.sh",
+        script_args=["--multimodal-embedding-cache-capacity-gb", "1"],
+        marks=[
+            pytest.mark.gpu_2,
+            pytest.mark.trtllm,
+            pytest.mark.multimodal,
+            pytest.mark.post_merge,
+        ],
+        model="llava-hf/llava-v1.6-mistral-7b-hf",
+        model_revision="52320fb52229",
+        frontend_port=DefaultPort.FRONTEND.value,
+        timeout=900,
+        delayed_start=120,
+        request_payloads=[
+            multimodal_payload_default(
+                text="Describe what you see in this image.",
+                expected_response=["mountain", "rock", "trees", "road"],
+                repeat_count=2,
+            )
+        ],
+    ),
     "completions_only": TRTLLMConfig(
         name="completions_only",
         directory=trtllm_dir,
