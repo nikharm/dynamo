@@ -2,6 +2,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+source "$SCRIPT_DIR/../../../common/launch_utils.sh"
+
+set -e
+trap 'echo Cleaning up...; kill 0' EXIT
+
 # Environment variables with defaults
 export DYNAMO_HOME=${DYNAMO_HOME:-"/workspace"}
 export MODEL_PATH=${MODEL_PATH:-"llava-hf/llava-v1.6-mistral-7b-hf"}
@@ -16,19 +22,8 @@ export ENCODE_ENDPOINT=${ENCODE_ENDPOINT:-"dyn://dynamo.tensorrt_llm_encode.gene
 export MODALITY=${MODALITY:-"multimodal"}
 export CUSTOM_TEMPLATE=${CUSTOM_TEMPLATE:-"$DYNAMO_HOME/examples/backends/trtllm/templates/llava_multimodal.jinja"}
 
-# Setup cleanup trap
-cleanup() {
-    echo "Cleaning up background processes..."
-    kill $DYNAMO_PID $PREFILL_PID $DECODE_PID $ENCODE_PID 2>/dev/null || true
-    wait $DYNAMO_PID $PREFILL_PID $DECODE_PID $ENCODE_PID 2>/dev/null || true
-    echo "Cleanup complete."
-}
-trap cleanup EXIT INT TERM
-
-
 # run frontend
 python3 -m dynamo.frontend --http-port 8000 &
-DYNAMO_PID=$!
 
 # run encode worker
 CUDA_VISIBLE_DEVICES=$ENCODE_CUDA_VISIBLE_DEVICES python3 -m dynamo.trtllm \
@@ -37,7 +32,6 @@ CUDA_VISIBLE_DEVICES=$ENCODE_CUDA_VISIBLE_DEVICES python3 -m dynamo.trtllm \
   --extra-engine-args "$ENCODE_ENGINE_ARGS" \
   --modality "$MODALITY" \
   --disaggregation-mode encode &
-ENCODE_PID=$!
 
 # run prefill worker
 CUDA_VISIBLE_DEVICES=$PREFILL_CUDA_VISIBLE_DEVICES python3 -m dynamo.trtllm \
@@ -48,7 +42,6 @@ CUDA_VISIBLE_DEVICES=$PREFILL_CUDA_VISIBLE_DEVICES python3 -m dynamo.trtllm \
   --disaggregation-mode prefill \
   --encode-endpoint "$ENCODE_ENDPOINT" \
   --custom-jinja-template "$CUSTOM_TEMPLATE" &
-PREFILL_PID=$!
 
 # run decode worker
 CUDA_VISIBLE_DEVICES=$DECODE_CUDA_VISIBLE_DEVICES python3 -m dynamo.trtllm \
@@ -58,6 +51,6 @@ CUDA_VISIBLE_DEVICES=$DECODE_CUDA_VISIBLE_DEVICES python3 -m dynamo.trtllm \
   --modality "$MODALITY" \
   --disaggregation-mode decode \
   --custom-jinja-template "$CUSTOM_TEMPLATE" &
-DECODE_PID=$!
 
-wait $DYNAMO_PID
+# Exit on first worker failure; kill 0 in the EXIT trap tears down the rest
+wait_any_exit

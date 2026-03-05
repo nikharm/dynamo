@@ -67,6 +67,27 @@ def _check_auto_backend_support(model: str, system: str) -> bool:
     )
 
 
+def _needs_interpolation(dgdr: DynamoGraphDeploymentRequestSpec) -> bool:
+    """True when interpolation data will actually be consumed.
+
+    Only throughput-based scaling and the mocker backend use the
+    per-engine performance curves produced by ``run_interpolation``.
+    Load-based scaling does not require them.
+    """
+    if dgdr.features is None:
+        return False
+
+    planner = dgdr.features.planner
+    if planner and planner.enable_throughput_scaling:
+        return True
+
+    mocker = dgdr.features.mocker
+    if mocker and mocker.enabled:
+        return True
+
+    return False
+
+
 def _extract_profiler_params(dgdr: DynamoGraphDeploymentRequestSpec) -> tuple:
     """Pull all profiler parameters from dgdr and log them."""
     model = dgdr.model

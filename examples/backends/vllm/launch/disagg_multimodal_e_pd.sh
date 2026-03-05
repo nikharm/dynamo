@@ -4,6 +4,9 @@
 set -e
 trap 'echo Cleaning up...; kill 0' EXIT
 
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+source "$SCRIPT_DIR/../../../common/launch_utils.sh"
+
 # Default values
 MODEL_NAME="Qwen/Qwen3-VL-30B-A3B-Instruct-FP8"
 SINGLE_GPU=false
@@ -58,35 +61,12 @@ PD_MAX_MODEL_LEN="16384"
 
 
 HTTP_PORT="${DYN_HTTP_PORT:-8000}"
-echo "=========================================="
 if [[ "$SINGLE_GPU" == "true" ]]; then
     GPU_LABEL="1 GPU"
 else
     GPU_LABEL="2 GPUs"
 fi
-echo "Launching Disaggregated Multimodal E+PD ($GPU_LABEL)"
-echo "=========================================="
-echo "Model:       $MODEL_NAME"
-echo "Frontend:    http://localhost:$HTTP_PORT"
-echo "=========================================="
-echo ""
-echo "Example test command:"
-echo ""
-echo "  curl http://localhost:${HTTP_PORT}/v1/chat/completions \\"
-echo "    -H 'Content-Type: application/json' \\"
-echo "    -d '{"
-echo "      \"model\": \"${MODEL_NAME}\","
-echo "      \"messages\": [{"
-echo "        \"role\": \"user\","
-echo "        \"content\": ["
-echo "          {\"type\": \"text\", \"text\": \"Describe the image.\"},"
-echo "          {\"type\": \"image_url\", \"image_url\": {\"url\": \"https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/480px-Cat03.jpg\"}}"
-echo "        ]"
-echo "      }],"
-echo "      \"max_tokens\": 50"
-echo "    }'"
-echo ""
-echo "=========================================="
+print_launch_banner --multimodal "Launching Disaggregated Multimodal E+PD ($GPU_LABEL)" "$MODEL_NAME" "$HTTP_PORT"
 
 
 # Start frontend (no router mode)
@@ -102,17 +82,26 @@ EXTRA_ARGS=""
 export DYN_VLLM_EMBEDDING_TRANSFER_MODE=${DYN_VLLM_EMBEDDING_TRANSFER_MODE:-"local"}
 
 # GPU assignments (override via environment variables)
+# DYN_GPU_MEMORY_FRACTION_OVERRIDE takes precedence over per-worker vars.
+# In single-GPU mode, the override is split evenly between the two workers
+# since they share the same GPU.
 if [[ "$SINGLE_GPU" == "true" ]]; then
     DYN_ENCODE_WORKER_GPU=${DYN_ENCODE_WORKER_GPU:-0}
     DYN_PD_WORKER_GPU=${DYN_PD_WORKER_GPU:-0}
-    DYN_ENCODE_GPU_MEM=${DYN_ENCODE_GPU_MEM:-0.4}
-    DYN_PD_GPU_MEM=${DYN_PD_GPU_MEM:-0.4}
+    if [[ -n "${DYN_GPU_MEMORY_FRACTION_OVERRIDE:-}" ]]; then
+        HALF_FRAC=$(awk -v f="$DYN_GPU_MEMORY_FRACTION_OVERRIDE" 'BEGIN { printf "%.2f", f / 2 }')
+        DYN_ENCODE_GPU_MEM=$HALF_FRAC
+        DYN_PD_GPU_MEM=$HALF_FRAC
+    else
+        DYN_ENCODE_GPU_MEM=${DYN_ENCODE_GPU_MEM:-0.4}
+        DYN_PD_GPU_MEM=${DYN_PD_GPU_MEM:-0.4}
+    fi
     EXTRA_ARGS="--enforce-eager"
 else
     DYN_ENCODE_WORKER_GPU=${DYN_ENCODE_WORKER_GPU:-1}
     DYN_PD_WORKER_GPU=${DYN_PD_WORKER_GPU:-2}
-    DYN_ENCODE_GPU_MEM=${DYN_ENCODE_GPU_MEM:-0.9}
-    DYN_PD_GPU_MEM=${DYN_PD_GPU_MEM:-0.9}
+    DYN_ENCODE_GPU_MEM=${DYN_GPU_MEMORY_FRACTION_OVERRIDE:-${DYN_ENCODE_GPU_MEM:-0.9}}
+    DYN_PD_GPU_MEM=${DYN_GPU_MEMORY_FRACTION_OVERRIDE:-${DYN_PD_GPU_MEM:-0.9}}
 fi
 
 # Start encode worker
@@ -143,5 +132,5 @@ echo "=================================================="
 echo "All components started. Waiting for initialization..."
 echo "=================================================="
 
-# Wait for all background processes to complete
-wait
+# Exit on first worker failure; kill 0 in the EXIT trap tears down the rest
+wait_any_exit
