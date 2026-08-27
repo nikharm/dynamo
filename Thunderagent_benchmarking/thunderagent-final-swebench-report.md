@@ -11,9 +11,9 @@ The comparison uses the same model, tasks, task order, serving capacity, and cli
 
 The primary metrics are workload throughput and goodput. Request-level latency, cache utilization, preemptions, and task outcomes are used to explain the observed workload-level result.
 
-## 3. Setup
+## 2. Setup
 
-### 3.1 Workload
+### 2.1 Workload
 
 | Item | Configuration |
 |---|---|
@@ -28,7 +28,7 @@ The primary metrics are workload throughput and goodput. Request-level latency, 
 
 The 90 tasks were selected without repetition. Repository-proportional sampling was used so that increasing the sample size did not disproportionately favor repositories with only a small number of tasks in the full benchmark.
 
-### 3.2 Model and serving topology
+### 2.2 Model and serving topology
 
 | Item | Configuration |
 |---|---|
@@ -44,20 +44,20 @@ The 90 tasks were selected without repetition. Repository-proportional sampling 
 
 Each approach used two independent model replicas, with every replica tensor-parallel across two GPUs. This preserved equal serving capacity while allowing KV-cache pressure to develop naturally at 90% GPU memory utilization.
 
-### 3.3 Metrics
+### 2.3 Metrics
 
 - **Throughput** = reported tasks / elapsed wall-clock hours.
 - **Goodput** = successfully completed tasks / elapsed wall-clock hours.
 - **Successful task** = the agent run completed without an infrastructure or agent timeout. A successful task can still produce an incorrect patch.
 - **Error** = the task did not complete normally, such as an agent timeout. Benchmark correctness is reported separately.
 
-### 3.4 Reproducibility
+### 2.4 Reproducibility
 
 See the [experiment reproducibility guide](swebench-reproduction/README.md) for the pinned configuration, workload manifest, deployment manifests, and execution instructions used for this experiment.
 
-## 4. Results
+## 3. Results
 
-### 4.1 Workload throughput and goodput
+### 3.1 Workload throughput and goodput
 
 | Metric | Dynamo KV-aware routing | ThunderAgent | Difference |
 |---|---:|---:|---:|
@@ -71,7 +71,7 @@ See the [experiment reproducibility guide](swebench-reproduction/README.md) for 
 
 *Both approaches executed the same 90 tasks. `scikit-learn__scikit-learn-14710` encountered a Harbor verifier timeout in both runs and is excluded from the comparative results above. The ten baseline errors and one ThunderAgent error were agent timeouts exceeding 3,000 seconds; they remain included in the 89-task comparison. Elapsed time begins at the synchronized batch start and ends at the final terminal result among the remaining 89 tasks.*
 
-### 4.2 Request-level serving performance
+### 3.2 Request-level serving performance
 
 | Metric | Dynamo KV-aware routing | ThunderAgent | Difference |
 |---|---:|---:|---:|
@@ -84,7 +84,7 @@ See the [experiment reproducibility guide](swebench-reproduction/README.md) for 
 
 *Request-level metrics are aggregate serving telemetry from the full 90-task execution. They cannot be cleanly separated for the single verifier-excluded task and therefore support mechanism analysis rather than the adjusted 89-task throughput calculation.*
 
-### 4.3 Task duration and benchmark outcomes
+### 3.3 Task duration and benchmark outcomes
 
 | Metric | Dynamo KV-aware routing | ThunderAgent | Difference |
 |---|---:|---:|---:|
@@ -94,7 +94,7 @@ See the [experiment reproducibility guide](swebench-reproduction/README.md) for 
 
 The pass counts measure patch correctness, while goodput measures reliable task completion. ThunderAgent's principal benefit in this experiment is higher serving efficiency and fewer timeouts, not a demonstrated improvement in model reasoning quality.
 
-### 4.4 ThunderAgent scheduler activity
+### 3.4 ThunderAgent scheduler activity
 
 | Signal | Observed value |
 |---|---:|
@@ -106,29 +106,29 @@ The pass counts measure patch correctness, while goodput measures reliable task 
 
 Pause and resume activity occurred throughout the run. Both serving paths reached high KV-cache utilization, but there were no worker restarts, client-host swap events, or infrastructure-capacity guard failures.
 
-## 5. Analysis
+## 4. Analysis
 
-### 5.1 The workload created real KV-cache pressure
+### 4.1 The workload created real KV-cache pressure
 
 This experiment allowed the serving engine to use up to 90% of GPU memory and created pressure through concurrent, long-running coding-agent sessions rather than through an artificially small KV-cache allocation. The observed pause/resume actions confirm that ThunderAgent's scheduling mechanism was exercised under the workload.
 
-### 5.2 ThunderAgent materially increased workload throughput
+### 4.2 ThunderAgent materially increased workload throughput
 
 ThunderAgent completed the comparable 89-task cohort in 56.00 minutes, versus 107.51 minutes for KV-aware routing. This corresponds to a 91.98% throughput improvement.
 
 The request-level measurements are consistent with that workload result: ThunderAgent reduced mean queue time by 85.55%, time to first token by 62.66%, and request latency by 29.81%.
 
-### 5.3 The larger improvement was in useful completed work
+### 4.3 The larger improvement was in useful completed work
 
 The baseline encountered ten agent timeouts, while ThunderAgent encountered one. Because timed-out tasks consumed serving time without completing normally, goodput improved by 113.85%, more than the raw throughput improvement.
 
 This is not an artifact of comparing different task counts. Both rates use the same 89 reported tasks; successful-task count affects only goodput.
 
-### 5.4 Cache reuse and lower preemption pressure explain the direction of the result
+### 4.4 Cache reuse and lower preemption pressure explain the direction of the result
 
 ThunderAgent increased the prefix-cache hit rate from 29.15% to 66.68% and reduced worker preemptions from 433 to 95. Together with the recorded pause/resume activity, these measurements indicate that program-aware scheduling preserved useful agent state and avoided a substantial amount of recomputation under pressure.
 
-### 5.5 Scope and limitations
+### 4.5 Scope and limitations
 
 - This is one simultaneous comparison using one model, one 90-task sample, and one concurrency level.
 - The shared Harbor verifier timeout is excluded symmetrically because it does not measure either serving approach.
