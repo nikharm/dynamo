@@ -1,0 +1,208 @@
+apiVersion: nvidia.com/v1beta1
+kind: DynamoGraphDeployment
+metadata:
+  name: qwen3-coder-next-thunderagent
+  namespace: thunderagent-bench
+  labels:
+    app.kubernetes.io/part-of: thunderagent-swebench-reproduction
+    benchmark-arm: thunderagent
+spec:
+  backendFramework: vllm
+  components:
+    - name: Frontend
+      type: frontend
+      runtimeVersionOverride: "1.4.1"
+      replicas: 1
+      podTemplate:
+        spec:
+          nodeSelector:
+            thunderagent.nvidia.com/role: control
+          containers:
+            - name: main
+              image: nvcr.io/nvidia/ai-dynamo/vllm-runtime@sha256:a6bb45ad652f01d08b5a18b54b9fa9e80584ce18ee1ba1e5a760a8f228872fe5
+              command: ["python3", "-m", "dynamo.frontend"]
+              args:
+                - --http-port
+                - "8000"
+                - --router-mode
+                - round-robin
+              resources:
+                requests:
+                  cpu: "2"
+                  memory: 2Gi
+                limits:
+                  cpu: "4"
+                  memory: 4Gi
+
+    - name: ThunderAgentRouter
+      type: worker
+      runtimeVersionOverride: "1.4.1"
+      replicas: 1
+      podTemplate:
+        spec:
+          nodeSelector:
+            thunderagent.nvidia.com/role: control
+          initContainers:
+            - name: model-card
+              image: nvcr.io/nvidia/ai-dynamo/vllm-runtime@sha256:a6bb45ad652f01d08b5a18b54b9fa9e80584ce18ee1ba1e5a760a8f228872fe5
+              command: ["/bin/bash", "-lc"]
+              args:
+                - >-
+                  set -euo pipefail;
+                  hf download Qwen/Qwen3-Coder-Next
+                  config.json tokenizer.json tokenizer_config.json
+                  generation_config.json vocab.json merges.txt
+                  --revision a7fbcb5c0e12d62a448eaa0e260346bf5dcc0feb
+                  --local-dir /model-card;
+                  test -f /model-card/config.json
+              env:
+                - name: HF_HOME
+                  value: /tmp/huggingface
+                - name: HF_XET_HIGH_PERFORMANCE
+                  value: "1"
+              envFrom:
+                - secretRef:
+                    name: hf-token-secret
+                    optional: true
+              volumeMounts:
+                - name: model-card
+                  mountPath: /model-card
+          containers:
+            - name: main
+              image: nvcr.io/nvidia/ai-dynamo/vllm-runtime@sha256:a6bb45ad652f01d08b5a18b54b9fa9e80584ce18ee1ba1e5a760a8f228872fe5
+              command: ["python3", "-m", "dynamo.thunderagent_router"]
+              args:
+                - --endpoint
+                - $(DYN_NAMESPACE)-$(DYN_NAMESPACE_WORKER_SUFFIX).backend.generate
+                - --model-name
+                - Qwen/Qwen3-Coder-Next
+                - --model-path
+                - /model-card
+                - --dyn-tool-call-parser
+                - qwen3_coder
+                - --router-block-size
+                - "16"
+              env:
+                - name: HF_HOME
+                  value: /tmp/huggingface
+                - name: HF_HUB_OFFLINE
+                  value: "1"
+              resources:
+                requests:
+                  cpu: "2"
+                  memory: 4Gi
+                limits:
+                  cpu: "4"
+                  memory: 8Gi
+              volumeMounts:
+                - name: model-card
+                  mountPath: /model-card
+                  readOnly: true
+          volumes:
+            - name: model-card
+              emptyDir: {}
+
+    - name: VllmDecodeWorker
+      type: decode
+      runtimeVersionOverride: "1.4.1"
+      replicas: 2
+      sharedMemorySize: 32Gi
+      podTemplate:
+        spec:
+          nodeSelector:
+            thunderagent.nvidia.com/benchmark-arm: thunderagent
+          tolerations:
+            - key: nvidia.com/gpu
+              operator: Exists
+              effect: NoSchedule
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:
+                      nvidia.com/dynamo-graph-deployment-name: qwen3-coder-next-thunderagent
+                  topologyKey: kubernetes.io/hostname
+          containers:
+            - name: main
+              image: nvcr.io/nvidia/ai-dynamo/vllm-runtime@sha256:a6bb45ad652f01d08b5a18b54b9fa9e80584ce18ee1ba1e5a760a8f228872fe5
+              command: ["python3", "-m", "dynamo.vllm"]
+              args:
+                - --model
+                - Qwen/Qwen3-Coder-Next
+                - --revision
+                - a7fbcb5c0e12d62a448eaa0e260346bf5dcc0feb
+                - --dtype
+                - bfloat16
+                - --kv-cache-dtype
+                - bfloat16
+                - --tensor-parallel-size
+                - "2"
+                - --max-model-len
+                - "65536"
+                - --max-num-seqs
+                - "32"
+                - --max-num-batched-tokens
+                - "8192"
+                - --compilation-config
+                - '{"mode":"none","cudagraph_mode":"FULL"}'
+                - --hf-overrides
+                - '{"max_position_embeddings":262144}'
+                - --gpu-memory-utilization
+                - "0.90"
+                - --block-size
+                - "16"
+                - --dyn-tool-call-parser
+                - qwen3_coder
+                - --endpoint-types
+                - none
+                - --no-enable-log-requests
+                - --kv-events-config
+                - '{"publisher":"zmq","topic":"kv-events","endpoint":"tcp://*:20080","enable_kv_cache_events":true}'
+              env:
+                - name: DYN_HEALTH_CHECK_ENABLED
+                  value: "false"
+                - name: HF_HOME
+                  value: /home/dynamo/.cache/huggingface
+                - name: HF_HUB_OFFLINE
+                  value: "1"
+                - name: PYTHONHASHSEED
+                  value: "0"
+                - name: SAFETENSORS_FAST_GPU
+                  value: "1"
+              envFrom:
+                - secretRef:
+                    name: hf-token-secret
+                    optional: true
+              resources:
+                requests:
+                  cpu: "16"
+                  memory: 128Gi
+                  nvidia.com/gpu: "2"
+                limits:
+                  cpu: "32"
+                  memory: 256Gi
+                  nvidia.com/gpu: "2"
+              startupProbe:
+                httpGet:
+                  path: /health
+                  port: 9090
+                initialDelaySeconds: 60
+                periodSeconds: 20
+                timeoutSeconds: 10
+                failureThreshold: 120
+              livenessProbe:
+                httpGet:
+                  path: /live
+                  port: 9090
+                initialDelaySeconds: 300
+                periodSeconds: 30
+                timeoutSeconds: 10
+                failureThreshold: 10
+              volumeMounts:
+                - name: model-cache
+                  mountPath: /home/dynamo/.cache/huggingface
+          volumes:
+            - name: model-cache
+              hostPath:
+                path: /var/lib/dynamo-model-cache
+                type: Directory

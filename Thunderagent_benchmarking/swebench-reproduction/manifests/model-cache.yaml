@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: qwen3-coder-next-model-cache
+  namespace: thunderagent-bench
+  labels:
+    app.kubernetes.io/part-of: thunderagent-swebench-reproduction
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qwen3-coder-next-model-cache
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: qwen3-coder-next-model-cache
+        app.kubernetes.io/part-of: thunderagent-swebench-reproduction
+    spec:
+      nodeSelector:
+        thunderagent.nvidia.com/model-cache: qwen3-coder-next
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: downloader
+          image: nvcr.io/nvidia/ai-dynamo/vllm-runtime@sha256:a6bb45ad652f01d08b5a18b54b9fa9e80584ce18ee1ba1e5a760a8f228872fe5
+          command: ["/bin/bash", "-lc"]
+          args:
+            - >-
+              set -euo pipefail;
+              hf download Qwen/Qwen3-Coder-Next
+              --revision a7fbcb5c0e12d62a448eaa0e260346bf5dcc0feb;
+              touch /model-cache/qwen3-coder-next-a7fbcb5.ready;
+              exec sleep infinity
+          env:
+            - name: HF_HOME
+              value: /model-cache
+            - name: HF_XET_HIGH_PERFORMANCE
+              value: "1"
+          envFrom:
+            - secretRef:
+                name: hf-token-secret
+                optional: true
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              cpu: "8"
+              memory: 16Gi
+          readinessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -lc
+                - test -f /model-cache/qwen3-coder-next-a7fbcb5.ready
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 360
+          volumeMounts:
+            - name: model-cache
+              mountPath: /model-cache
+      volumes:
+        - name: model-cache
+          hostPath:
+            path: /var/lib/dynamo-model-cache
+            type: DirectoryOrCreate

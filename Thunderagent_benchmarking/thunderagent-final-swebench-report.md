@@ -51,6 +51,10 @@ Each approach used two independent model replicas, with every replica tensor-par
 - **Successful task** = the agent run completed without an infrastructure or agent timeout. A successful task can still produce an incorrect patch.
 - **Error** = the task did not complete normally, such as an agent timeout. Benchmark correctness is reported separately.
 
+### 3.4 Reproducibility
+
+See the [experiment reproducibility guide](swebench-reproduction/README.md) for the pinned configuration, workload manifest, deployment manifests, and execution instructions used for this experiment.
+
 ## 4. Results
 
 ### 4.1 Workload throughput and goodput
@@ -65,7 +69,7 @@ Each approach used two independent model replicas, with every replica tensor-par
 | Throughput | 49.67 tasks/hour | 95.35 tasks/hour | **+91.98%** |
 | Goodput | 44.09 successful tasks/hour | 94.28 successful tasks/hour | **+113.85%** |
 
-*Both approaches executed the same 90 tasks. `scikit-learn__scikit-learn-14710` encountered a Harbor verifier timeout in both runs and is excluded from the comparative results above. The ten baseline errors and one ThunderAgent error were agent timeouts exceeding 3,000 seconds; they remain included in the 89-task comparison. Elapsed time begins when the last excluded task terminal finished, so the table measures the same 89-task cohort in both approaches.*
+*Both approaches executed the same 90 tasks. `scikit-learn__scikit-learn-14710` encountered a Harbor verifier timeout in both runs and is excluded from the comparative results above. The ten baseline errors and one ThunderAgent error were agent timeouts exceeding 3,000 seconds; they remain included in the 89-task comparison. Elapsed time begins at the synchronized batch start and ends at the final terminal result among the remaining 89 tasks.*
 
 ### 4.2 Request-level serving performance
 

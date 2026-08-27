@@ -1,0 +1,6 @@
+.deps/
+.venv/
+artifacts/
+__pycache__/
+*.pyc
+.DS_Store
