@@ -10,7 +10,11 @@ Two subsequent changes failed to improve the winner. Increasing router decay to 
 
 ## Objective
 
-The performance question was:
+The verbatim goal captured at the start of the experiment was:
+
+> Maximize AIPerf goodput requests/second at the frozen fixed-schedule rate of 4.826758331048411 requests/second; each good request must have TTFT < 5000 ms and ITL < 100 ms. Error-free serving is a secondary requirement.
+
+The operational performance question was:
 
 > At the fixed ToolAgent arrival schedule, which Dynamo/vLLM configuration maximizes requests per second that simultaneously meet TTFT `< 5,000 ms` and ITL `< 100 ms`, with zero request errors?
 
