@@ -1,0 +1,91 @@
+apiVersion: nvidia.com/v1alpha1
+kind: DynamoGraphDeployment
+metadata:
+  name: toolagent-qwen32b
+  labels:
+    experiment.variant: winner-4096
+spec:
+  pvcs:
+    - create: false
+      name: model-cache
+  services:
+    Frontend:
+      componentType: frontend
+      replicas: 1
+      envs:
+        - name: DYN_ROUTER_MODE
+          value: kv
+        - name: DYN_ROUTER_KV_OVERLAP_SCORE_CREDIT_DECAY
+          value: "0"
+      resources:
+        requests:
+          cpu: "8"
+        limits:
+          cpu: "8"
+      extraPodSpec:
+        mainContainer:
+          image: nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.4.1
+          workingDir: /workspace
+    VllmDecodeWorker:
+      componentType: worker
+      subComponentType: decode
+      replicas: 8
+      envFromSecret: model-access
+      resources:
+        requests:
+          gpu: "1"
+        limits:
+          gpu: "1"
+      extraPodSpec:
+        tolerations:
+          - key: nvidia.com/gpu
+            operator: Exists
+            effect: NoSchedule
+        mainContainer:
+          image: nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.4.1
+          workingDir: /workspace
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              python3 -m dynamo.vllm
+              --model Qwen/Qwen3-32B
+              --revision 9216db5781bf21249d130ec9da846c4624c16137
+              --served-model-name Qwen/Qwen3-32B
+              --quantization fp8
+              --kv-cache-dtype fp8
+              --max-model-len 131072
+              --hf-overrides '{"rope_scaling":{"rope_type":"yarn","factor":4.0,"original_max_position_embeddings":32768},"max_position_embeddings":131072}'
+              --gpu-memory-utilization 0.90
+              --max-num-batched-tokens 4096
+              --block-size 64
+              --async-scheduling
+              --no-enable-log-requests
+              --kv-events-config '{"publisher":"zmq","topic":"kv-events","endpoint":"tcp://*:20080","enable_kv_cache_events":true}'
+          env:
+            - name: DYN_HEALTH_CHECK_ENABLED
+              value: "false"
+            - name: HF_HOME
+              value: /home/dynamo/.cache/huggingface
+            - name: HF_HUB_OFFLINE
+              value: "1"
+          startupProbe:
+            httpGet: {path: /health, port: 9090}
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 90
+          livenessProbe:
+            httpGet: {path: /live, port: 9090}
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 10
+          readinessProbe:
+            httpGet: {path: /live, port: 9090}
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 10
+      volumeMounts:
+        - name: model-cache
+          mountPoint: /home/dynamo/.cache/huggingface

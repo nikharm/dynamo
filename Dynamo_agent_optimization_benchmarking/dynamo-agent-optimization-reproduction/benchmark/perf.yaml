@@ -1,0 +1,138 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: toolagent-benchmark
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: aiperf
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          workingDir: /work
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+
+              hold_and_exit() {
+                local status="$1"
+                trap - ERR
+                set +e
+                for attempt in $(seq 1 180); do
+                  if [ -f /artifacts/COLLECTED ]; then
+                    exit "$status"
+                  fi
+                  sleep 5
+                done
+                echo "artifacts were not collected before the hold timeout" >&2
+                exit 1
+              }
+
+              fail_and_hold() {
+                local status=$?
+                trap - ERR
+                set +e
+                mkdir -p /artifacts/run
+                printf '%s\n' "$status" > /artifacts/exit-status
+                touch /artifacts/AIPERF_FAILED
+                hold_and_exit "$status"
+              }
+
+              trap fail_and_hold ERR
+
+              python3 - <<'PY'
+              import gzip, hashlib, json
+              from pathlib import Path
+              source = Path('/input/toolagent-shape-trace.jsonl.gz')
+              compressed = source.read_bytes()
+              raw = gzip.decompress(compressed)
+              assert hashlib.sha256(compressed).hexdigest() == 'f081d6352e0f02862fb242146372b47ececc6f661e92935c528dcceefbdfcb20'
+              assert hashlib.sha256(raw).hexdigest() == 'ce4308b6f19d10fdaf79f10179b04dcb652f4fcc4cf26e5c1388f6e575fc37b2'
+              rows = [json.loads(line) for line in raw.splitlines()]
+              assert len(rows) == 5775
+              assert rows[0]['timestamp'] == 0 and rows[-1]['timestamp'] == 1196248
+              Path('/work/toolagent-shape-trace.jsonl').write_bytes(raw)
+              print('trace validation passed')
+              PY
+
+              apt-get update
+              apt-get install -y --no-install-recommends build-essential ca-certificates git
+              rm -rf /var/lib/apt/lists/*
+              pip install --no-cache-dir "aiperf==0.10.0"
+              python3 -c "import aiperf; assert aiperf.__version__ == '0.10.0'"
+
+              mkdir -p /artifacts/run
+              set +e
+              timeout --signal=TERM --kill-after=30s 1800s \
+                aiperf profile \
+                  --model Qwen/Qwen3-32B \
+                  --endpoint-type chat \
+                  --tokenizer /root/.cache/huggingface/hub/models--Qwen--Qwen3-32B/snapshots/9216db5781bf21249d130ec9da846c4624c16137 \
+                  --tokenizer-trust-remote-code \
+                  --url http://toolagent-qwen32b-frontend:8000 \
+                  --streaming \
+                  --input-file /work/toolagent-shape-trace.jsonl \
+                  --custom-dataset-type mooncake_trace \
+                  --fixed-schedule \
+                  --num-requests 5775 \
+                  --random-seed 42 \
+                  --extra-inputs ignore_eos:true \
+                  --goodput "time_to_first_token:5000 inter_token_latency:100" \
+                  --request-timeout-seconds 600 \
+                  --ui simple \
+                  --artifact-dir /artifacts/run \
+                  --export-http-trace
+              status=$?
+              set -e
+
+              printf '%s\n' "$status" > /artifacts/exit-status
+              if [ "$status" -eq 0 ]; then
+                touch /artifacts/AIPERF_DONE
+              else
+                touch /artifacts/AIPERF_FAILED
+              fi
+              hold_and_exit "$status"
+          envFrom:
+            - secretRef:
+                name: model-access
+          env:
+            - name: HF_HOME
+              value: /root/.cache/huggingface
+            - name: HF_HUB_OFFLINE
+              value: "1"
+            - name: AIPERF_HTTP_CONNECTION_LIMIT
+              value: "1024"
+            - name: AIPERF_HTTP_SO_RCVTIMEO
+              value: "600"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          resources:
+            requests:
+              cpu: "8"
+              memory: 16Gi
+            limits:
+              cpu: "14"
+              memory: 32Gi
+          volumeMounts:
+            - name: trace
+              mountPath: /input
+              readOnly: true
+            - name: artifacts
+              mountPath: /artifacts
+            - name: model-cache
+              mountPath: /root/.cache/huggingface
+              readOnly: true
+      volumes:
+        - name: trace
+          configMap:
+            name: toolagent-shape-trace
+        - name: artifacts
+          emptyDir: {}
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: model-cache

@@ -1,0 +1,36 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: toolagent-model-download
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: download
+          image: nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.4.1
+          command: ["python3", "-c"]
+          args:
+            - >-
+              import os;
+              from huggingface_hub import snapshot_download;
+              path=snapshot_download(repo_id=os.environ['MODEL_ID'],revision=os.environ['MODEL_REVISION'],cache_dir=os.environ['HF_HOME']);
+              print(path)
+          envFrom:
+            - secretRef:
+                name: model-access
+          env:
+            - name: MODEL_ID
+              value: Qwen/Qwen3-32B
+            - name: MODEL_REVISION
+              value: 9216db5781bf21249d130ec9da846c4624c16137
+            - name: HF_HOME
+              value: /cache
+          volumeMounts:
+            - name: model-cache
+              mountPath: /cache
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: model-cache

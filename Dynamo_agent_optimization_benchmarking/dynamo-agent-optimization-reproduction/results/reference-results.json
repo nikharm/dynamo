@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "experiment": {
+    "model": "Qwen/Qwen3-32B",
+    "model_revision": "9216db5781bf21249d130ec9da846c4624c16137",
+    "runtime": "Dynamo vLLM 1.4.1 / vLLM 0.26.0",
+    "gpu_type": "H100",
+    "gpu_count": 8,
+    "request_count": 5775,
+    "offered_rate_rps": 4.826758331048411,
+    "ttft_threshold_ms_strict": 5000,
+    "itl_threshold_ms_strict": 100
+  },
+  "runs": [
+    {
+      "variant": "baseline",
+      "max_num_batched_tokens": 8192,
+      "gpu_memory_utilization": 0.9,
+      "router_decay": 0,
+      "strict_goodput_rps": 1.3999876796164166,
+      "strict_good_requests": 1709,
+      "error_count": 0,
+      "decision": "baseline"
+    },
+    {
+      "variant": "winner-4096",
+      "max_num_batched_tokens": 4096,
+      "gpu_memory_utilization": 0.9,
+      "router_decay": 0,
+      "strict_goodput_rps": 1.7523235444837106,
+      "strict_good_requests": 2131,
+      "error_count": 0,
+      "delta_percent_vs_baseline": 25.1670689676234,
+      "decision": "promoted"
+    },
+    {
+      "variant": "router-decay-1",
+      "max_num_batched_tokens": 4096,
+      "gpu_memory_utilization": 0.9,
+      "router_decay": 1.0,
+      "strict_goodput_rps": 1.5454459916601966,
+      "strict_good_requests": 1888,
+      "error_count": 0,
+      "delta_percent_vs_winner": -11.805899285823193,
+      "decision": "rejected"
+    },
+    {
+      "variant": "gpu-memory-095-run-1",
+      "max_num_batched_tokens": 4096,
+      "gpu_memory_utilization": 0.95,
+      "router_decay": 0,
+      "strict_goodput_rps": 1.7407946926753772,
+      "strict_good_requests": 2118,
+      "error_count": 0,
+      "decision": "repeat_required"
+    },
+    {
+      "variant": "gpu-memory-095-run-2",
+      "max_num_batched_tokens": 4096,
+      "gpu_memory_utilization": 0.95,
+      "router_decay": 0,
+      "strict_goodput_rps": 1.7567977150799532,
+      "strict_good_requests": 2134,
+      "error_count": 0,
+      "two_run_mean_strict_goodput_rps": 1.7487962038776652,
+      "two_run_mean_delta_percent_vs_winner": -0.20129505291128705,
+      "decision": "rejected"
+    }
+  ],
+  "unmeasured_next_candidate": {
+    "variant": "candidate-3072",
+    "max_num_batched_tokens": 3072,
+    "technical_review": "passed",
+    "measured": false
+  }
+}
