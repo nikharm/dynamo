@@ -10,9 +10,9 @@ Two subsequent changes failed to improve the winner. Increasing router decay to 
 
 ## Objective
 
-The verbatim goal captured at the start of the experiment was:
+The verbatim unattended optimization goal was:
 
-> Maximize AIPerf goodput requests/second at the frozen fixed-schedule rate of 4.826758331048411 requests/second; each good request must have TTFT < 5000 ms and ITL < 100 ms. Error-free serving is a secondary requirement.
+> Test every lever family that is testable within 32 GPU-hours, 8 wall-clock hours, 3 failed deployments, and an 8-GPU ceiling. Never stop because a report exists. Record asks without blocking and continue other testable work. Valid stops: budget exhausted, access lost, operator interrupt, or an operator-granted evidence-validated stop request.
 
 The operational performance question was:
 
