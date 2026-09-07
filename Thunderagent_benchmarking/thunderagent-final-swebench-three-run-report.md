@@ -207,16 +207,3 @@ request-level serving metrics reported in the original experiment. The pooled
 result shows 62.93% lower mean TTFT, 87.01% lower mean queue time, 31.77% lower
 mean request latency, 41.22% lower mean ITL, a 44.88-point higher prefix-cache
 hit rate, and 83.83% fewer worker preemptions.
-
-## 5. Reproducibility and evidence
-
-- [Experiment protocol](swebench-reproduction/profiles/fresh-ordered-v1.env)
-- [Arm ledger](swebench-reproduction/protocol/fresh-ordered-v1-arms.csv)
-- [Serving-metrics technical appendix](swebench-reproduction/THREE_RUN_SERVING_METRICS.md)
-- [Consolidated execution record](swebench-reproduction/THREE_RUN_RESULTS.md)
-- [Analysis script](swebench-reproduction/scripts/analyze_three_run_serving_metrics.py)
-- [Original experiment report](thunderagent-final-swebench-report.md)
-
-All six arms passed their admission-order, artifact, driver-clean, and teardown
-checks. The final teardown verified zero GPU consumers and zero active benchmark
-containers or processes.
